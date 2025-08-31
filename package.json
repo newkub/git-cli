@@ -1,0 +1,49 @@
+{
+  "name": "@wrikka/git-cli",
+  "type": "module",
+  "version": "0.1.0",
+  "description": "Git history viewer with interactive prompts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "wgit": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "oclif": {
+    "bin": "wgit",
+    "dirname": "wgit",
+    "commands": "./dist/commands",
+    "topicSeparator": " "
+  },
+  "scripts": {
+    "prepare": "lefthook install",
+    "dev": "bun run --watch src/index.ts",
+    "build": "tsdown",
+    "lint": "biome lint --write && bunx tsc --noEmit",
+    "format": "biome format --write",
+    "release": "release-it"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^latest",
+    "@ai-sdk/openai": "^latest",
+    "@ai-sdk/xai": "^2.0.14",
+    "@clack/prompts": "^0.11.0",
+    "ai": "^5.0.28",
+    "execa": "9.6.0",
+    "picocolors": "^1.1.1"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.2.2",
+    "@types/bun": "^1.2.21",
+    "release-it": "19.0.4",
+    "tsdown": "^0.14.2",
+    "typescript": "^5.9.2"
+  },
+  "module": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./package.json": "./package.json"
+  }
+}

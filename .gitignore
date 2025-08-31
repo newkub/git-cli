@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Bun
+.bun
+
+# Build output
+dist
+
+# Environment variables
+.env
+.env.local
+
+# IDE
+.vscode
+.idea
+
+# Logs
+logs
+*.log
+
+# OS generated files
+.DS_Store
+Thumbs.db

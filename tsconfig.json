@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "module": "ESNext",
+    "target": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "baseUrl": ".",
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "allowJs": false,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "types": ["@types/bun"],
+    "paths": {
+      "@/*": ["src/*"]
+    }
+  },
+  "include": ["src"],
+  "exclude": ["node_modules"]
+}
