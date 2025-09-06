@@ -6,19 +6,18 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "wgit": "./dist/index.js"
+    "wgit": "./src/index.ts"
   },
   "files": [
     "dist"
   ],
-  "oclif": {
-    "bin": "wgit",
-    "dirname": "wgit",
-    "commands": "./dist/commands",
-    "topicSeparator": " "
-  },
   "scripts": {
     "prepare": "lefthook install",
+    "prepublishOnly": "bun run build",
+    "prepack": "bun run build",
+    "postinstall": "bun link",
+    "preversion": "bun run lint && bun run build",
+    "postversion": "bun run release",
     "dev": "bun run --watch src/index.ts",
     "build": "tsdown",
     "lint": "biome lint --write && bunx tsc --noEmit",
@@ -28,14 +27,14 @@
   "dependencies": {
     "@ai-sdk/anthropic": "^latest",
     "@ai-sdk/openai": "^latest",
-    "@ai-sdk/xai": "^2.0.14",
+    "@ai-sdk/xai": "^2.0.16",
     "@clack/prompts": "^0.11.0",
-    "ai": "^5.0.28",
+    "ai": "^5.0.33",
     "execa": "9.6.0",
     "picocolors": "^1.1.1"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.2.2",
+    "@biomejs/biome": "^2.2.3",
     "@types/bun": "^1.2.21",
     "release-it": "19.0.4",
     "tsdown": "^0.14.2",
