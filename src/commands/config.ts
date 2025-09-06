@@ -41,9 +41,9 @@ function logInfo(message: string): void {
 }
 
 function showHelp(): void {
-	console.log(pc.bold("w-git config - Manage w-git configuration"));
+	console.log(pc.bold("git config - Manage git configuration"));
 	console.log("\nUsage:");
-	console.log("  w-git config [options]");
+	console.log("  git config [options]");
 	console.log("\nOptions:");
 	console.log("  -i, --init      Initialize a new config file");
 	console.log("  -s, --show      Show current configuration");
@@ -51,10 +51,10 @@ function showHelp(): void {
 	console.log("  -g, --global    Use global configuration (in home directory)");
 	console.log("  -h, --help      Show this help message");
 	console.log("\nExamples:");
-	console.log("  w-git config");
-	console.log("  w-git config --init");
-	console.log("  w-git config --show");
-	console.log("  w-git config --validate");
+	console.log("  git config");
+	console.log("  git config --init");
+	console.log("  git config --show");
+	console.log("  git config --validate");
 }
 
 function parseArgs(args: string[]): ConfigOptions {
@@ -99,7 +99,7 @@ export async function configCommand(args: string[]): Promise<void> {
 			return;
 		}
 
-		intro(pc.blue("⚙️  W-Git Configuration Manager"));
+		intro(pc.blue("⚙️  git Configuration Manager"));
 
 		if (options.init) {
 			await initConfig(options.global);
@@ -118,10 +118,8 @@ export async function configCommand(args: string[]): Promise<void> {
 
 		// Interactive mode
 		await interactiveMode();
-		outro(pc.green("✅ Configuration completed successfully"));
 	} catch (error) {
 		s.stop("❌ Operation failed");
-		outro(pc.red("Configuration failed"));
 		console.error(
 			pc.red(error instanceof Error ? error.message : String(error)),
 		);
@@ -151,9 +149,7 @@ async function initConfig(global = false): Promise<void> {
 		s.stop(pc.green(`✅ Configuration file created`));
 
 		logSuccess(`Configuration created at: ${configPath}`);
-		logInfo("Edit the file to customize your w-git settings");
-
-		outro(pc.green("🎉 W-Git configuration initialized successfully"));
+		logInfo("Edit the file to customize your git settings");
 	} catch (error) {
 		s.stop("❌ Failed to create configuration");
 		throw error;
@@ -186,18 +182,18 @@ async function showConfig(): Promise<void> {
 		console.log(pc.bold("\n📝 Commit Settings:"));
 		console.log(`  Use AI: ${config.commit.useAI}`);
 		console.log(`  Conventional Commits: ${config.commit.conventionalCommits}`);
-		console.log(`  Max Message Length: ${config.commit.maxMessageLength}`);
-		console.log(`  Require Scope: ${config.commit.requireScope}`);
+		console.log(`  Max Message Length: ${config.commit.maxMessageLength || 72}`);
+		console.log(`  Require Scope: ${config.commit.requireScope || false}`);
 
 		console.log(pc.bold("\n🌿 Branch Settings:"));
-		console.log(`  Default Branch: ${config.branch.defaultBranch}`);
-		console.log(`  Naming Convention: ${config.branch.namingConvention}`);
-		console.log(`  Auto Delete Merged: ${config.branch.autoDeleteMerged}`);
+		console.log(`  Default Branch: ${config.branch?.defaultBranch || "main"}`);
+		console.log(`  Naming Convention: ${config.branch?.namingConvention || "default"}`);
+		console.log(`  Auto Delete Merged: ${config.branch?.autoDeleteMerged || false}`);
 
 		console.log(pc.bold("\n🎨 UI Settings:"));
-		console.log(`  Theme: ${config.ui.theme}`);
-		console.log(`  Animations: ${config.ui.animations}`);
-		console.log(`  Emojis: ${config.ui.emojis}`);
+		console.log(`  Theme: ${config.ui?.theme || "default"}`);
+		console.log(`  Animations: ${config.ui?.animations || true}`);
+		console.log(`  Emojis: ${config.ui?.emojis || true}`);
 
 		if (Object.keys(config.aliases || {}).length > 0) {
 			console.log(pc.bold("\n🔧 Aliases:"));
@@ -205,8 +201,6 @@ async function showConfig(): Promise<void> {
 				console.log(`  ${alias} -> ${command}`);
 			}
 		}
-
-		outro(pc.green("✅ Configuration displayed"));
 	} catch (error) {
 		s.stop("❌ Failed to load configuration");
 		throw error;
@@ -230,12 +224,6 @@ async function validateCurrentConfig(): Promise<void> {
 				console.log(pc.red(`  • ${error}`));
 			});
 		}
-
-		outro(
-			validation.valid
-				? pc.green("✅ Configuration is valid")
-				: pc.red("❌ Configuration has errors"),
-		);
 	} catch (error) {
 		s.stop("❌ Validation failed");
 		throw error;
@@ -300,7 +288,7 @@ async function interactiveMode(): Promise<void> {
 		case "info":
 			if (configInfo.type === "none") {
 				logWarning("No configuration file found");
-				logInfo("Run 'w-git config --init' to create one");
+				logInfo("Run 'git config --init' to create one");
 			} else {
 				logSuccess(`Configuration file: ${configInfo.path}`);
 				logInfo(`Type: ${configInfo.type}`);
