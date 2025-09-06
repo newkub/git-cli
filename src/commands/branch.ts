@@ -42,9 +42,9 @@ function logInfo(message: string): void {
 }
 
 function showHelp(): void {
-	console.log(pc.bold("w-git branch - Manage git branches"));
+	console.log(pc.bold("git branch - Manage git branches"));
 	console.log("\nUsage:");
-	console.log("  w-git branch [options]");
+	console.log("  git branch [options]");
 	console.log("\nOptions:");
 	console.log("  -l, --list         List all branches");
 	console.log("  -c, --create NAME  Create a new branch");
@@ -53,10 +53,10 @@ function showHelp(): void {
 	console.log("  -r, --remote       Include remote branches");
 	console.log("  -h, --help         Show this help message");
 	console.log("\nExamples:");
-	console.log("  w-git branch");
-	console.log("  w-git branch --list");
-	console.log("  w-git branch --create feature-branch");
-	console.log("  w-git branch --checkout main");
+	console.log("  git branch");
+	console.log("  git branch --list");
+	console.log("  git branch --create feature-branch");
+	console.log("  git branch --checkout main");
 }
 
 function parseArgs(args: string[]): BranchOptions {
@@ -102,47 +102,324 @@ function parseArgs(args: string[]): BranchOptions {
 }
 
 export async function branchCommand(args: string[]): Promise<void> {
-	const options = parseArgs(args);
 	const s = spinner();
 
 	try {
-		if (options.help) {
-			showHelp();
+		s.start("Loading branch information");
+
+		// Get branch information
+		const { stdout: currentBranch } = await execa("git", [
+			"branch",
+			"--show-current",
+		]);
+		const { stdout: allBranches } = await execa("git", ["branch", "-a"]);
+		const { stdout: upstream } = await execa("git", [
+			"rev-parse",
+			"--abbrev-ref",
+			"@{u}",
+		]).catch(() => ({ stdout: "No upstream" }));
+		const { stdout: lastCommit } = await execa("git", [
+			"log",
+			"-1",
+			"--pretty=format:%h %s",
+		]);
+		const { stdout: ahead } = await execa("git", [
+			"rev-list",
+			"--count",
+			"@{u}..HEAD",
+		]).catch(() => ({ stdout: "0" }));
+		const { stdout: behind } = await execa("git", [
+			"rev-list",
+			"--count",
+			"HEAD..@{u}",
+		]).catch(() => ({ stdout: "0" }));
+
+		s.stop();
+
+		// Create branch status box
+		let statusLine = `Current: ${currentBranch} | Upstream: ${upstream} | Latest: ${lastCommit}`;
+		if (parseInt(ahead, 10) > 0) statusLine += ` | ${pc.blue(`↑${ahead}`)}`;
+		if (parseInt(behind, 10) > 0) statusLine += ` | ${pc.red(`↓${behind}`)}`;
+
+		const boxWidth = Math.max(statusLine.length + 4, 80);
+		console.log(pc.gray(`Branch Status ${"─".repeat(boxWidth - 14)}╮`));
+		console.log(pc.gray("│") + " ".repeat(boxWidth - 2) + pc.gray("│"));
+		console.log(
+			pc.gray("│  ") +
+				statusLine +
+				" ".repeat(boxWidth - statusLine.length - 4) +
+				pc.gray("│"),
+		);
+		console.log(pc.gray("│") + " ".repeat(boxWidth - 2) + pc.gray("│"));
+		console.log(pc.gray(`├${"─".repeat(boxWidth - 2)}╯`));
+
+		// Display all branches
+		const branches = allBranches.split("\n").filter(Boolean);
+		console.log(pc.bold("\n🌿 All Branches:"));
+		branches.forEach((branch) => {
+			const cleanBranch = branch.trim();
+			if (cleanBranch.startsWith("* ")) {
+				console.log(
+					`  ${pc.green("●")} ${pc.green(cleanBranch.substring(2))} ${pc.gray("(current)")}`,
+				);
+			} else if (cleanBranch.startsWith("remotes/")) {
+				console.log(
+					`  ${pc.blue("○")} ${pc.blue(cleanBranch)} ${pc.gray("(remote)")}`,
+				);
+			} else {
+				console.log(`  ${pc.gray("○")} ${cleanBranch}`);
+			}
+		});
+
+		// Show actions menu
+		const action = await select({
+			message: "What would you like to do?",
+			options: [
+				{
+					value: "switch",
+					label: "🔄 Switch Branch",
+					hint: "Change to different branch",
+				},
+				{
+					value: "create",
+					label: "🆕 Create Branch",
+					hint: "Create new branch from current",
+				},
+				{
+					value: "rename",
+					label: "✏️  Rename Branch",
+					hint: "Rename current or other branch",
+				},
+				{
+					value: "delete",
+					label: "🗑️  Delete Branch",
+					hint: "Delete local branch",
+				},
+				{
+					value: "merge",
+					label: "🔀 Merge Branch",
+					hint: "Merge branch into current",
+				},
+				{
+					value: "rebase",
+					label: "📐 Rebase Branch",
+					hint: "Rebase current branch",
+				},
+				{
+					value: "track",
+					label: "🔗 Track Remote",
+					hint: "Set upstream for current branch",
+				},
+				{
+					value: "push",
+					label: "⬆️  Push Branch",
+					hint: "Push current branch to remote",
+				},
+				{ value: "back", label: "← Back", hint: "Return to main menu" },
+			],
+		});
+
+		if (isCancel(action)) {
 			return;
 		}
 
-		intro(pc.blue("🌿 Git Branch Manager"));
-
-		if (options.list) {
-			await listBranches(options.remote);
-			return;
-		}
-
-		if (options.create) {
-			await createBranch(options.create);
-			return;
-		}
-
-		if (options.checkout) {
-			await checkoutBranch(options.checkout);
-			return;
-		}
-
-		if (options.delete) {
-			await deleteBranch(options.delete);
-			return;
-		}
-
-		// Interactive mode
-		await interactiveMode(options.remote);
-		outro(pc.green("✅ Branch operation completed successfully"));
+		await handleBranchAction(action as string, currentBranch, branches);
 	} catch (error) {
 		s.stop("❌ Operation failed");
-		outro(pc.red("Branch operation failed"));
 		console.error(
 			pc.red(error instanceof Error ? error.message : String(error)),
 		);
-		process.exit(1);
+	}
+}
+
+async function handleBranchAction(
+	action: string,
+	currentBranch: string,
+	allBranches: string[],
+) {
+	const s = spinner();
+
+	try {
+		switch (action) {
+			case "switch": {
+				const localBranches = allBranches
+					.filter((b) => !b.includes("remotes/") && !b.startsWith("*"))
+					.map((b) => b.trim());
+
+				if (localBranches.length === 0) {
+					console.log(pc.yellow("No other local branches available"));
+					return;
+				}
+
+				const branchToSwitch = await select({
+					message: "Select branch to switch to",
+					options: localBranches.map((branch) => ({
+						value: branch,
+						label: branch,
+					})),
+				});
+
+				if (!isCancel(branchToSwitch)) {
+					s.start(`Switching to ${branchToSwitch}`);
+					await execa("git", ["checkout", branchToSwitch as string]);
+					s.stop(pc.green(`✅ Switched to ${branchToSwitch}`));
+				}
+				break;
+			}
+
+			case "create": {
+				const newBranchName = await text({
+					message: "Enter new branch name",
+					placeholder: "feature/new-feature",
+				});
+
+				if (!isCancel(newBranchName)) {
+					s.start(`Creating branch ${newBranchName}`);
+					await execa("git", ["checkout", "-b", newBranchName as string]);
+					s.stop(pc.green(`✅ Created and switched to ${newBranchName}`));
+				}
+				break;
+			}
+
+			case "rename": {
+				const newName = await text({
+					message: `Rename current branch (${currentBranch})`,
+					placeholder: "new-branch-name",
+				});
+
+				if (!isCancel(newName)) {
+					s.start(`Renaming branch to ${newName}`);
+					await execa("git", ["branch", "-m", newName as string]);
+					s.stop(pc.green(`✅ Renamed branch to ${newName}`));
+				}
+				break;
+			}
+
+			case "delete": {
+				const localBranchesToDelete = allBranches
+					.filter((b) => !b.includes("remotes/") && !b.startsWith("*"))
+					.map((b) => b.trim());
+
+				if (localBranchesToDelete.length === 0) {
+					console.log(pc.yellow("No other local branches to delete"));
+					return;
+				}
+
+				const branchToDelete = await select({
+					message: "Select branch to delete",
+					options: localBranchesToDelete.map((branch) => ({
+						value: branch,
+						label: branch,
+					})),
+				});
+
+				if (!isCancel(branchToDelete)) {
+					const confirmDelete = await confirm({
+						message: `Delete branch ${branchToDelete}?`,
+						initialValue: false,
+					});
+
+					if (confirmDelete && !isCancel(confirmDelete)) {
+						s.start(`Deleting branch ${branchToDelete}`);
+						await execa("git", ["branch", "-d", branchToDelete as string]);
+						s.stop(pc.green(`✅ Deleted branch ${branchToDelete}`));
+					}
+				}
+				break;
+			}
+
+			case "merge": {
+				const branchesToMerge = allBranches
+					.filter((b) => !b.includes("remotes/") && !b.startsWith("*"))
+					.map((b) => b.trim());
+
+				if (branchesToMerge.length === 0) {
+					console.log(pc.yellow("No other branches to merge"));
+					return;
+				}
+
+				const branchToMerge = await select({
+					message: `Select branch to merge into ${currentBranch}`,
+					options: branchesToMerge.map((branch) => ({
+						value: branch,
+						label: branch,
+					})),
+				});
+
+				if (!isCancel(branchToMerge)) {
+					s.start(`Merging ${branchToMerge} into ${currentBranch}`);
+					await execa("git", ["merge", branchToMerge as string]);
+					s.stop(pc.green(`✅ Merged ${branchToMerge} into ${currentBranch}`));
+				}
+				break;
+			}
+
+			case "rebase": {
+				const branchesToRebase = allBranches
+					.filter((b) => !b.includes("remotes/") && !b.startsWith("*"))
+					.map((b) => b.trim());
+
+				if (branchesToRebase.length === 0) {
+					console.log(pc.yellow("No other branches to rebase onto"));
+					return;
+				}
+
+				const rebaseTarget = await select({
+					message: `Select branch to rebase ${currentBranch} onto`,
+					options: branchesToRebase.map((branch) => ({
+						value: branch,
+						label: branch,
+					})),
+				});
+
+				if (!isCancel(rebaseTarget)) {
+					s.start(`Rebasing ${currentBranch} onto ${rebaseTarget}`);
+					await execa("git", ["rebase", rebaseTarget as string]);
+					s.stop(pc.green(`✅ Rebased ${currentBranch} onto ${rebaseTarget}`));
+				}
+				break;
+			}
+
+			case "track": {
+				const remoteName = await text({
+					message: "Enter remote name",
+					placeholder: "origin",
+				});
+
+				if (!isCancel(remoteName)) {
+					s.start(`Setting upstream to ${remoteName}/${currentBranch}`);
+					await execa("git", [
+						"branch",
+						"--set-upstream-to",
+						`${remoteName}/${currentBranch}`,
+					]);
+					s.stop(pc.green(`✅ Set upstream to ${remoteName}/${currentBranch}`));
+				}
+				break;
+			}
+
+			case "push": {
+				const confirmPush = await confirm({
+					message: `Push ${currentBranch} to remote?`,
+					initialValue: true,
+				});
+
+				if (confirmPush && !isCancel(confirmPush)) {
+					s.start(`Pushing ${currentBranch}`);
+					await execa("git", ["push", "-u", "origin", currentBranch]);
+					s.stop(pc.green(`✅ Pushed ${currentBranch} to origin`));
+				}
+				break;
+			}
+
+			case "back":
+				break;
+		}
+	} catch (error) {
+		s.stop("❌ Action failed");
+		console.error(
+			pc.red(error instanceof Error ? error.message : String(error)),
+		);
 	}
 }
 
@@ -168,7 +445,6 @@ async function listBranches(includeRemote = false): Promise<void> {
 		const marker = isRemote ? "🌐" : "📝";
 		console.log(`  ${marker} ${branch}`);
 	});
-	outro(pc.green("✅ Branch list displayed"));
 }
 
 async function createBranch(branchName: string): Promise<void> {
@@ -176,7 +452,6 @@ async function createBranch(branchName: string): Promise<void> {
 	s.start(`Creating branch ${branchName}`);
 	await execa("git", ["checkout", "-b", branchName]);
 	s.stop(pc.green(`✅ Created and switched to branch ${branchName}`));
-	outro(pc.green("✅ Branch created successfully"));
 }
 
 async function checkoutBranch(branchName: string): Promise<void> {
@@ -184,7 +459,6 @@ async function checkoutBranch(branchName: string): Promise<void> {
 	s.start(`Switching to ${branchName}`);
 	await execa("git", ["checkout", branchName]);
 	s.stop(pc.green(`✅ Switched to ${branchName}`));
-	outro(pc.green("✅ Branch switched successfully"));
 }
 
 async function deleteBranch(branchName: string): Promise<void> {
@@ -202,7 +476,6 @@ async function deleteBranch(branchName: string): Promise<void> {
 	s.start(`Deleting branch ${branchName}`);
 	await execa("git", ["branch", "-d", branchName]);
 	s.stop(pc.green(`✅ Deleted branch ${branchName}`));
-	outro(pc.green("✅ Branch deleted successfully"));
 }
 
 async function interactiveMode(includeRemote = false): Promise<void> {

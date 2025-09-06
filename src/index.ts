@@ -1,110 +1,279 @@
-import { Command } from "commander";
+#!/usr/bin/env bun
+import { intro, outro, select, isCancel, cancel, note } from "@clack/prompts";
 import * as pc from "picocolors";
-import { commitCommand } from "./commands/commit.ts";
-import { branchCommand } from "./commands/branch.ts";
-import { configCommand } from "./commands/config.ts";
-import { initRepo } from "./commands/init.ts";
-import { showCommitLog } from "./commands/log.ts";
-import { mergeBranch } from "./commands/merge.ts";
-import { pullChanges } from "./commands/pull.ts";
-import { pushChanges } from "./commands/push.ts";
+import { execa } from "execa";
+import {
+	branchCommand,
+	commitCommand,
+	showCommitLog,
+	mergeBranch,
+	remoteCommand,
+	searchCommand,
+	showGitStatus,
+	stageFiles,
+	unstageFiles,
+	manageSubmodules,
+} from "./commands";
 
-const program = new Command();
+const WELCOME_ART = `${pc.bold(pc.blue("wgit interactive cli"))}`;
 
-program
-	.name("w-git")
-	.description("Enhanced Git CLI with AI support")
-	.version("1.0.0");
+async function getGitStatus() {
+	try {
+		const { stdout: branch } = await execa("git", ["branch", "--show-current"]);
+		const { stdout: lastCommitHash } = await execa("git", [
+			"log",
+			"-1",
+			"--pretty=format:%h",
+		]);
+		const { stdout: lastCommitMessage } = await execa("git", [
+			"log",
+			"-1",
+			"--pretty=format:%s",
+		]);
+		const { stdout: remote } = await execa("git", [
+			"remote",
+			"get-url",
+			"origin",
+		]).catch(() => ({ stdout: "No remote" }));
+		const { stdout: remoteName } = await execa("git", ["remote"]).catch(() => ({
+			stdout: "No remote",
+		}));
+		const { stdout: status } = await execa("git", ["status", "--porcelain"]);
+		const { stdout: ahead } = await execa("git", [
+			"rev-list",
+			"--count",
+			"@{u}..HEAD",
+		]).catch(() => ({ stdout: "0" }));
+		const { stdout: behind } = await execa("git", [
+			"rev-list",
+			"--count",
+			"HEAD..@{u}",
+		]).catch(() => ({ stdout: "0" }));
+		const { stdout: submodules } = await execa("git", [
+			"submodule",
+			"status",
+		]).catch(() => ({ stdout: "" }));
 
-// Commands
-program
-	.command("commit")
-	.description("Create commits with conventional format and AI support")
-	.option("-a, --ai", "Use AI to generate commit message (default)", true)
-	.option("--no-ai", "Disable AI commit message generation")
-	.option("-m, --message <msg>", "Commit message")
-	.option("-t, --type <type>", "Commit type (feat, fix, docs, etc.)")
-	.option("-s, --scope <scope>", "Commit scope")
-	.option("-b, --breaking", "Mark as breaking change")
-	.action(async (options) => {
-		const args: string[] = [];
-		if (options.ai) args.push("--ai");
-		if (options.noAi) args.push("--no-ai");
-		if (options.message) args.push("--message", options.message);
-		if (options.type) args.push("--type", options.type);
-		if (options.scope) args.push("--scope", options.scope);
-		if (options.breaking) args.push("--breaking");
-		await commitCommand(args);
+		// Count staged and modified files
+		const statusLines = status.trim().split("\n").filter(Boolean);
+		const stagedCount = statusLines.filter(
+			(line) => line[0] !== " " && line[0] !== "?",
+		).length;
+		const modifiedCount = statusLines.filter(
+			(line) => line[1] !== " " || line[0] === "?",
+		).length;
+		const submoduleCount = submodules.trim().split("\n").filter(Boolean).length;
+
+		return {
+			branch: branch || "No branch",
+			lastCommitHash: lastCommitHash || "No commits",
+			lastCommitMessage: lastCommitMessage || "No commits",
+			remote:
+				remote.replace("https://github.com/", "github:").replace(".git", "") ||
+				"No remote",
+			remoteName: remoteName.trim() || "No remote",
+			hasChanges: status.trim().length > 0,
+			status: status,
+			stagedCount,
+			modifiedCount,
+			submoduleCount,
+			ahead: parseInt(ahead, 10) || 0,
+			behind: parseInt(behind, 10) || 0,
+		};
+	} catch {
+		return {
+			branch: "Not a git repo",
+			lastCommitHash: "",
+			lastCommitMessage: "",
+			remote: "",
+			remoteName: "",
+			hasChanges: false,
+			status: "",
+			stagedCount: 0,
+			modifiedCount: 0,
+			submoduleCount: 0,
+			ahead: 0,
+			behind: 0,
+		};
+	}
+}
+
+export async function main() {
+	// Check if command line arguments are provided
+	const args = process.argv.slice(2);
+
+	if (args.length > 0) {
+		// Direct command execution
+		const command = args[0];
+		const commandArgs = args.slice(1);
+
+		try {
+			switch (command) {
+				case "commit":
+					await commitCommand(commandArgs);
+					break;
+				case "branch":
+					await branchCommand(commandArgs);
+					break;
+				case "status":
+					await showGitStatus();
+					break;
+				case "log":
+					await showCommitLog();
+					break;
+				case "remote":
+					await remoteCommand();
+					break;
+				case "merge":
+					await mergeBranch();
+					break;
+				case "stage":
+					await stageFiles();
+					break;
+				case "unstage":
+					await unstageFiles();
+					break;
+				case "submodules":
+					await manageSubmodules();
+					break;
+				case "search":
+					await searchCommand();
+					break;
+				default:
+					console.log(pc.red(`❌ Unknown command: ${command}`));
+					console.log(
+						pc.cyan(
+							"Available commands: commit, branch, status, log, remote, merge, stage, unstage, submodules, search",
+						),
+					);
+			}
+			process.exit(0);
+		} catch (error) {
+			outro(
+				pc.red(
+					"❌ Error: " +
+						(error instanceof Error ? error.message : String(error)),
+				),
+			);
+			process.exit(1);
+		}
+	}
+
+	// Interactive mode
+	intro(WELCOME_ART);
+
+	const status = await getGitStatus();
+
+	if (status.branch !== "Not a git repo") {
+		const fileCount = status.hasChanges
+			? status.status.split("\n").filter(Boolean).length
+			: 0;
+
+		let statusLine = `${pc.cyan(status.branch)} | ${pc.yellow(`${status.lastCommitHash} ${status.lastCommitMessage}`)} | ${pc.green(status.remote)}`;
+		if (status.ahead > 0) statusLine += ` | ${pc.blue(`↑${status.ahead}`)}`;
+		if (status.behind > 0) statusLine += ` | ${pc.red(`↓${status.behind}`)}`;
+		if (status.hasChanges)
+			statusLine += ` | ${pc.yellow(`${fileCount} files changed`)}`;
+
+		note(statusLine, "Git Status");
+	}
+
+	const command = await select({
+		message: pc.bold("What would you like to do?"),
+		options: [
+			{
+				value: "commit",
+				label: `📝 Commit        ${pc.gray("→")} ${status.lastCommitMessage ? pc.yellow(status.lastCommitMessage.slice(0, 30) + (status.lastCommitMessage.length > 30 ? "..." : "")) : pc.gray("No commits")}`,
+			},
+			{
+				value: "branch",
+				label: `🌿 Branch        ${pc.gray("→")} ${pc.cyan(status.branch)}`,
+			},
+			{
+				value: "status",
+				label: `📊 Status        ${pc.gray("→")} ${status.stagedCount > 0 ? pc.green(`${status.stagedCount} staged`) : ""}${status.stagedCount > 0 && status.modifiedCount > 0 ? pc.gray("/") : ""}${status.modifiedCount > 0 ? pc.yellow(`${status.modifiedCount} changed`) : ""}${!status.hasChanges ? pc.green("Clean") : ""}`,
+			},
+			{
+				value: "log",
+				label: `📚 Log           ${pc.gray("→")} ${pc.yellow(status.lastCommitHash)}`,
+			},
+			{
+				value: "remote",
+				label: `🌐 Remote        ${pc.gray("→")} ${pc.green(status.remoteName)}`,
+			},
+			{
+				value: "merge",
+				label: `🔀 Merge         ${pc.gray("→")} ${status.behind > 0 ? pc.red(`Behind ${status.behind}`) : status.ahead > 0 ? pc.blue(`Ahead ${status.ahead}`) : pc.green("Up to date")}`,
+			},
+			{
+				value: "stage",
+				label: `➕ Stage         ${pc.gray("→")} ${status.stagedCount > 0 ? pc.green(`${status.stagedCount} staged`) : ""}${status.stagedCount > 0 && status.modifiedCount > 0 ? pc.gray("/") : ""}${status.modifiedCount > 0 ? pc.yellow(`${status.modifiedCount} to stage`) : ""}${!status.hasChanges ? pc.gray("Nothing") : ""}`,
+			},
+			{
+				value: "unstage",
+				label: `➖ Unstage       ${pc.gray("→")} ${status.stagedCount > 0 ? pc.green(`${status.stagedCount} staged`) : pc.gray("Nothing staged")}`,
+			},
+			{
+				value: "submodules",
+				label: `📦 Submodules    ${pc.gray("→")} ${status.submoduleCount > 0 ? pc.magenta(`${status.submoduleCount} connected`) : pc.gray("None")}`,
+			},
+			{
+				value: "search",
+				label: `🔍 Search        ${pc.gray("→")} ${pc.blue("Content, files, history")}`,
+			},
+		],
 	});
 
-program
-	.command("branch")
-	.description("Manage git branches - list, switch, create, delete")
-	.option("-l, --list", "List all branches")
-	.option("-c, --create <name>", "Create a new branch")
-	.option("-o, --checkout <name>", "Checkout to branch")
-	.option("-d, --delete <name>", "Delete branch")
-	.option("-r, --remote", "Include remote branches")
-	.action(async (options) => {
-		const args: string[] = [];
-		if (options.list) args.push("--list");
-		if (options.create) args.push("--create", options.create);
-		if (options.checkout) args.push("--checkout", options.checkout);
-		if (options.delete) args.push("--delete", options.delete);
-		if (options.remote) args.push("--remote");
-		await branchCommand(args);
-	});
+	if (isCancel(command)) {
+		cancel(pc.yellow("See you next time!"));
+		outro(pc.blue("🚀 Happy coding!"));
+		process.exit(0);
+	}
 
-program
-	.command("config")
-	.description("Manage w-git configuration")
-	.option("-i, --init", "Initialize a new config file")
-	.option("-s, --show", "Show current configuration")
-	.option("-v, --validate", "Validate current configuration")
-	.option("-g, --global", "Use global configuration")
-	.action(async (options) => {
-		const args: string[] = [];
-		if (options.init) args.push("--init");
-		if (options.show) args.push("--show");
-		if (options.validate) args.push("--validate");
-		if (options.global) args.push("--global");
-		await configCommand(args);
-	});
-
-program
-	.command("init")
-	.description("Initialize a new git repository")
-	.action(async () => {
-		await initRepo();
-	});
-
-program
-	.command("log")
-	.description("View git commit history")
-	.action(async () => {
-		await showCommitLog();
-	});
-
-program
-	.command("merge")
-	.description("Merge branches")
-	.action(async () => {
-		await mergeBranch();
-	});
-
-program
-	.command("pull")
-	.description("Pull changes from remote repository")
-	.action(async () => {
-		await pullChanges();
-	});
-
-program
-	.command("push")
-	.description("Push changes to remote repository")
-	.action(async () => {
-		await pushChanges();
-	});
+	try {
+		switch (command) {
+			case "commit":
+				await commitCommand([]);
+				break;
+			case "branch":
+				await branchCommand([]);
+				break;
+			case "status":
+				await showGitStatus();
+				break;
+			case "log":
+				await showCommitLog();
+				break;
+			case "remote":
+				await remoteCommand();
+				break;
+			case "merge":
+				await mergeBranch();
+				break;
+			case "stage":
+				await stageFiles();
+				break;
+			case "unstage":
+				await unstageFiles();
+				break;
+			case "submodules":
+				await manageSubmodules();
+				break;
+			case "search":
+				await searchCommand();
+				break;
+		}
+		outro(pc.blue("🚀 Happy coding!"));
+		process.exit(0);
+	} catch (error) {
+		outro(
+			pc.red(
+				`❌ Error: ${error instanceof Error ? error.message : String(error)}`,
+			),
+		);
+		process.exit(1);
+	}
+}
 
 // Handle uncaught exceptions
 process.on("uncaughtException", (error) => {
@@ -120,9 +289,11 @@ process.on("unhandledRejection", (reason) => {
 	process.exit(1);
 });
 
-// Parse arguments and run
-if (import.meta.url === `file://${process.argv[1]}`) {
-	program.parse();
+// Check if running directly
+if (
+	import.meta.url === `file://${process.argv[1]}` ||
+	process.argv[1]?.endsWith("src/index.ts") ||
+	process.argv[1]?.endsWith("index.ts")
+) {
+	main();
 }
-
-export { program };

@@ -44,10 +44,6 @@ export async function pushChanges() {
 		s.stop(pc.green(`✅ Successfully pushed ${branch} to ${remote}`));
 		console.log(stdout);
 	} catch (error) {
-		s.stop("❌ Push failed");
-		console.error(
-			pc.red(error instanceof Error ? error.message : String(error)),
-		);
-		process.exit(1);
+		throw new Error(error instanceof Error ? error.message : String(error));
 	}
 }

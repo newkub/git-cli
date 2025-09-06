@@ -1,22 +1,21 @@
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join, dirname } from "path";
 import { homedir } from "os";
-import {
-	type WGitConfig,
-	type ResolvedWGitConfig,
-	defaultConfig,
-} from "../types/config";
+import { type KogitConfig, defaultConfig } from "../types/config";
 
 /**
  * Configuration file locations to search (in order of priority)
  */
 const CONFIG_FILENAMES = [
-	"w-git.config.ts",
-	"w-git.config.js",
-	"w-git.config.json",
-	".w-git.config.ts",
-	".w-git.config.js",
-	".w-git.config.json",
+	"kogit.config.ts",
+	"kogit.config.js",
+	"kogit.config.json",
+	"git.config.ts",
+	"git.config.js",
+	"git.config.json",
+	".git.config.ts",
+	".git.config.js",
+	".git.config.json",
 ];
 
 /**
@@ -59,7 +58,7 @@ function findConfigFile(): string | null {
 /**
  * Load configuration from file
  */
-async function loadConfigFromFile(configPath: string): Promise<WGitConfig> {
+async function loadConfigFromFile(configPath: string): Promise<KogitConfig> {
 	try {
 		if (configPath.endsWith(".json")) {
 			// JSON config
@@ -80,14 +79,14 @@ async function loadConfigFromFile(configPath: string): Promise<WGitConfig> {
 				console.warn(
 					"JavaScript/TypeScript config files are not fully supported yet. Please use JSON format.",
 				);
-				return {};
+				return defaultConfig;
 			}
 		}
 	} catch (error) {
 		console.error(`Error loading config from ${configPath}:`, error);
 	}
 
-	return {};
+	return defaultConfig;
 }
 
 /**
@@ -125,9 +124,9 @@ function deepMerge<T>(target: T, source: Partial<T>): T {
 /**
  * Load and resolve configuration
  */
-export async function loadConfig(): Promise<ResolvedWGitConfig> {
+export async function loadConfig(): Promise<KogitConfig> {
 	const configPath = findConfigFile();
-	let userConfig: WGitConfig = {};
+	let userConfig: Partial<KogitConfig> = {};
 
 	if (configPath) {
 		userConfig = await loadConfigFromFile(configPath);
@@ -166,7 +165,7 @@ export function getConfigInfo(): {
 export function createConfigFile(
 	type: "project" | "global" = "project",
 ): string {
-	const configTemplate = `import { defineConfig } from 'w-git-cli/config';
+	const configTemplate = `import { defineConfig } from 'git-cli/config';
 
 export default defineConfig({
 	// AI Configuration
@@ -241,7 +240,7 @@ export default defineConfig({
 });`;
 
 	const baseDir = type === "project" ? process.cwd() : homedir();
-	const configPath = join(baseDir, "w-git.config.ts");
+	const configPath = join(baseDir, "git.config.ts");
 
 	writeFileSync(configPath, configTemplate, "utf-8");
 
@@ -251,7 +250,7 @@ export default defineConfig({
 /**
  * Validate configuration
  */
-export function validateConfig(config: WGitConfig): {
+export function validateConfig(config: KogitConfig): {
 	valid: boolean;
 	errors: string[];
 } {
@@ -268,26 +267,6 @@ export function validateConfig(config: WGitConfig): {
 	// Validate commit types
 	if (config.commit?.types && !Array.isArray(config.commit.types)) {
 		errors.push("commit.types must be an array");
-	}
-
-	// Validate branch naming convention
-	if (
-		config.branch?.namingConvention &&
-		!["kebab-case", "camelCase", "snake_case"].includes(
-			config.branch.namingConvention,
-		)
-	) {
-		errors.push(
-			`Invalid branch naming convention: ${config.branch.namingConvention}`,
-		);
-	}
-
-	// Validate UI theme
-	if (
-		config.ui?.theme &&
-		!["auto", "light", "dark"].includes(config.ui.theme)
-	) {
-		errors.push(`Invalid UI theme: ${config.ui.theme}`);
 	}
 
 	return {

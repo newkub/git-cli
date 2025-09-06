@@ -11,10 +11,28 @@ import {
 } from "@clack/prompts";
 import * as pc from "picocolors";
 import type { CommitType } from "../types/git";
+import { loadConfig } from "../utils/useConfig";
+import type { KogitConfig } from "../types/config";
 import {
-	generateCommitMessage,
-	type AIProviderConfig,
-} from "../utils/useTextGeneration";
+	parseCommitArgs,
+	selectCommitMode,
+	showCommitHelp,
+	type CommitOptions,
+} from "../utils/useCommitOptions";
+import {
+	buildCommitMessage,
+	generateAICommitMessage,
+	enhanceCommitMessage,
+	getUserCommitMessage,
+	confirmCommitMessage,
+	executeCommit,
+} from "../utils/useCommitMessage";
+import {
+	getStagedFiles,
+	hasChanges,
+	autoCommitAllChanges,
+} from "../utils/useGitChanges";
+import { logSuccess, logError, logWarning, logInfo } from "../utils/useLogger";
 
 const COMMIT_TYPES: CommitType[] = [
 	{ value: "feat", label: "feat", hint: "A new feature" },
@@ -58,108 +76,14 @@ const COMMIT_TYPES: CommitType[] = [
 	{ value: "revert", label: "revert", hint: "Reverts a previous commit" },
 ];
 
-interface CommitOptions {
-	ai?: boolean;
-	no_ai?: boolean;
-	message?: string;
-	type?: string;
-	scope?: string;
-	breaking?: boolean;
-	help?: boolean;
-}
-
-function logSuccess(message: string): void {
-	console.log(pc.green(`✅ ${message}`));
-}
-
-function logError(message: string): void {
-	console.log(pc.red(`❌ ${message}`));
-}
-
-function logWarning(message: string): void {
-	console.log(pc.yellow(`⚠️  ${message}`));
-}
-
-function logInfo(message: string): void {
-	console.log(pc.cyan(`ℹ️  ${message}`));
-}
-
-function showHelp(): void {
-	console.log(
-		pc.bold("w-git commit - Create commits with conventional format"),
-	);
-	console.log("\nUsage:");
-	console.log("  w-git commit [options]");
-	console.log("\nOptions:");
-	console.log(
-		"  -a, --ai           Use AI to generate commit message (default)",
-	);
-	console.log("      --no-ai        Disable AI commit message generation");
-	console.log("  -m, --message      Commit message");
-	console.log("  -t, --type         Commit type (feat, fix, docs, etc.)");
-	console.log("  -s, --scope        Commit scope");
-	console.log("  -b, --breaking     Mark as breaking change");
-	console.log("  -h, --help         Show this help message");
-	console.log("\nExamples:");
-	console.log("  w-git commit");
-	console.log("  w-git commit --ai");
-	console.log("  w-git commit --message 'fix: resolve issue'");
-	console.log("  w-git commit --type feat --scope api");
-}
-
-function parseArgs(args: string[]): CommitOptions {
-	const options: CommitOptions = { ai: true }; // AI enabled by default
-
-	for (let i = 0; i < args.length; i++) {
-		const arg = args[i];
-		switch (arg) {
-			case "-a":
-			case "--ai":
-				options.ai = true;
-				break;
-			case "--no-ai":
-				options.no_ai = true;
-				options.ai = false;
-				break;
-			case "-m":
-			case "--message":
-				if (i + 1 < args.length) {
-					options.message = args[++i];
-				}
-				break;
-			case "-t":
-			case "--type":
-				if (i + 1 < args.length) {
-					options.type = args[++i];
-				}
-				break;
-			case "-s":
-			case "--scope":
-				if (i + 1 < args.length) {
-					options.scope = args[++i];
-				}
-				break;
-			case "-b":
-			case "--breaking":
-				options.breaking = true;
-				break;
-			case "-h":
-			case "--help":
-				options.help = true;
-				break;
-		}
-	}
-
-	return options;
-}
-
 export async function commitCommand(args: string[]): Promise<void> {
-	const options = parseArgs(args);
+	const options = parseCommitArgs(args);
+	const config = await loadConfig();
 	const s = spinner();
 
 	try {
 		if (options.help) {
-			showHelp();
+			showCommitHelp();
 			return;
 		}
 
@@ -167,160 +91,238 @@ export async function commitCommand(args: string[]): Promise<void> {
 
 		// Check if there are changes to commit
 		s.start("Checking for changes");
-		const { stdout: status } = await execa("git", ["status", "--porcelain"]);
+		const hasAnyChanges = await hasChanges();
 		s.stop("✅ Changes checked");
 
-		if (!status.trim()) {
-			outro(pc.yellow("⚠️  No changes to commit"));
+		if (!hasAnyChanges) {
+			logInfo("No changes to commit");
 			return;
 		}
 
 		if (options.message) {
-			await createDirectCommit(options.message);
+			await executeCommit(options.message);
 			return;
 		}
 
-		// Use AI by default unless explicitly disabled
-		if (!options.no_ai && options.ai) {
-			await createAICommit();
+		// Always ask user to choose mode first (unless specific flags are used)
+		if (!options.mode && !options.ai && !options.no_ai) {
+			const mode = await selectCommitMode();
+			if (!mode) return;
+
+			options.mode = mode;
+		}
+
+		// Handle different commit modes
+		if (options.mode === "autocommit") {
+			await createAutoCommit(config);
 			return;
 		}
 
-		await createInteractiveCommit(options);
-		outro(pc.green("✅ Commit completed successfully"));
+		if (options.mode === "prompt-enhance") {
+			await createPromptEnhanceCommit(config);
+			return;
+		}
+
+		if (options.mode === "ai-generate") {
+			await createAICommit(config);
+			return;
+		}
+
+		if (options.mode === "interactive") {
+			await createInteractiveCommit(options, config);
+			return;
+		}
+
+		// Use AI only when explicitly requested
+		if (options.ai && !options.no_ai) {
+			await createAICommit(config);
+			return;
+		}
+
+		// Fallback to interactive
+		await createInteractiveCommit(options, config);
 	} catch (error) {
 		s.stop("❌ Operation failed");
-		outro(pc.red("Commit failed"));
-		console.error(
-			pc.red(error instanceof Error ? error.message : String(error)),
-		);
-		process.exit(1);
+		throw new Error(error instanceof Error ? error.message : String(error));
 	}
 }
 
-async function createAICommit(): Promise<void> {
-	const s = spinner();
+async function createAICommit(config: KogitConfig): Promise<void> {
 	try {
-		s.start("Generating AI commit message");
-		const { stdout: diff } = await execa("git", ["diff", "--cached"]);
-
-		if (!diff.trim()) {
-			const { stdout: allDiff } = await execa("git", ["diff"]);
-			if (!allDiff.trim()) {
-				s.stop("❌ No changes to commit");
-				outro(pc.yellow("⚠️  No changes found"));
-				return;
-			}
+		const stagedFiles = await getStagedFiles();
+		if (stagedFiles.length === 0) {
+			logWarning("No staged changes to commit");
+			return;
 		}
 
-		const aiConfig: AIProviderConfig = { provider: "openai" }; // Default to OpenAI
-		const message = await generateCommitMessage(diff, aiConfig);
-		await execa("git", ["commit", "-m", message]);
-		s.stop(pc.green("✅ AI commit message generated and committed"));
-		outro(pc.green(`🤖 Committed: ${message}`));
+		const aiMessage = await generateAICommitMessage(config);
+		if (!aiMessage) return;
+
+		const confirmed = await confirmCommitMessage(aiMessage);
+		if (!confirmed) return;
+
+		await executeCommit(aiMessage);
+		logSuccess("AI commit created successfully");
 	} catch (error) {
-		s.stop("❌ AI commit failed");
+		logError(`Failed to create AI commit: ${error}`);
 		throw error;
 	}
 }
 
 async function createDirectCommit(message: string): Promise<void> {
-	const s = spinner();
-	s.start("Creating commit");
-	await execa("git", ["commit", "-m", message]);
-	s.stop(pc.green("✅ Commit created successfully"));
+	await executeCommit(message);
 }
 
-async function createInteractiveCommit(options: CommitOptions): Promise<void> {
-	const s = spinner();
+async function createAutoCommit(config: KogitConfig): Promise<void> {
+	try {
+		await autoCommitAllChanges(config);
+		outro(pc.green("🎉 Auto-commit completed successfully!"));
+	} catch (error) {
+		logError(`Failed to create auto-commit: ${error}`);
+		logWarning("Please check your configuration and try again.");
+		throw error;
+	}
+}
 
-	// Select commit type
-	let type = options.type;
-	if (!type) {
-		const typeResult = await select({
-			message: "Select commit type",
-			options: COMMIT_TYPES.map((t) => ({
-				value: t.value,
-				label: `${t.label} - ${t.hint}`,
-			})),
+function groupChangesByType(
+	statusLines: string[],
+): Array<{ type: string; files: string[] }> {
+	const groups = new Map<string, string[]>();
+
+	for (const line of statusLines) {
+		const status = line.substring(0, 2);
+		const file = line.substring(3);
+
+		let type = "misc";
+		if (status.includes("A")) type = "feat";
+		else if (status.includes("M")) type = "fix";
+		else if (status.includes("D")) type = "remove";
+		else if (status.includes("R")) type = "refactor";
+
+		if (!groups.has(type)) {
+			groups.set(type, []);
+		}
+		groups.get(type)?.push(file);
+	}
+
+	return Array.from(groups.entries()).map(([type, files]) => ({ type, files }));
+}
+
+async function createPromptEnhanceCommit(config: KogitConfig): Promise<void> {
+	try {
+		const userMessage = await getUserCommitMessage();
+		if (!userMessage) return;
+
+		const enhancedMessage = await enhanceCommitMessage(userMessage, config);
+		if (!enhancedMessage) return;
+
+		const confirmed = await confirmCommitMessage(enhancedMessage);
+		if (!confirmed) return;
+
+		await executeCommit(enhancedMessage);
+		logSuccess("Enhanced commit created successfully");
+	} catch (error) {
+		logError(`Failed to create enhanced commit: ${error}`);
+		throw error;
+	}
+}
+
+async function createInteractiveCommit(
+	options: CommitOptions,
+	config: KogitConfig,
+): Promise<void> {
+	try {
+		// Select commit type
+		let type = options.type;
+		if (!type) {
+			const typeResult = await select({
+				message: "Select commit type",
+				options: COMMIT_TYPES.map((t) => ({
+					value: t.value,
+					label: `${t.label} - ${t.hint}`,
+				})),
+			});
+
+			if (isCancel(typeResult)) {
+				cancel("Operation cancelled");
+				return;
+			}
+			type = typeResult as string;
+		}
+
+		// Get scope (optional)
+		let scope = options.scope;
+		if (!scope) {
+			const scopeResult = await text({
+				message: "Scope (optional)",
+				placeholder: "e.g., api, ui, auth",
+			});
+
+			if (isCancel(scopeResult)) {
+				cancel("Operation cancelled");
+				return;
+			}
+			scope = scopeResult as string;
+		}
+
+		// Get commit message
+		const message = await text({
+			message: "Commit message",
+			placeholder: "Brief description of changes",
+			validate(value) {
+				if (!value) return "Message is required";
+				if (value.length > 72) return "Message should be 72 characters or less";
+			},
 		});
 
-		if (isCancel(typeResult)) {
+		if (isCancel(message)) {
 			cancel("Operation cancelled");
 			return;
 		}
-		type = typeResult as string;
-	}
 
-	// Get scope (optional)
-	let scope = options.scope;
-	if (!scope) {
-		const scopeResult = await text({
-			message: "Scope (optional)",
-			placeholder: "e.g., api, ui, auth",
-		});
+		// Check for breaking change
+		let breaking = options.breaking;
+		if (breaking === undefined) {
+			const breakingResult = await confirm({
+				message: "Is this a breaking change?",
+				initialValue: false,
+			});
 
-		if (isCancel(scopeResult)) {
-			cancel("Operation cancelled");
-			return;
-		}
-		scope = scopeResult as string;
-	}
-
-	// Get commit message
-	const message = await text({
-		message: "Commit message",
-		placeholder: "Brief description of changes",
-		validate(value) {
-			if (!value) return "Message is required";
-			if (value.length > 72) return "Message should be 72 characters or less";
-		},
-	});
-
-	if (isCancel(message)) {
-		cancel("Operation cancelled");
-		return;
-	}
-
-	// Check for breaking change
-	let breaking = options.breaking;
-	if (breaking === undefined) {
-		const breakingResult = await confirm({
-			message: "Is this a breaking change?",
-			initialValue: false,
-		});
-
-		if (isCancel(breakingResult)) {
-			cancel("Operation cancelled");
-			return;
-		}
-		breaking = breakingResult as boolean;
-	}
-
-	// Build commit message
-	let commitMsg = `${type}`;
-	if (scope?.trim()) commitMsg += `(${scope.trim()})`;
-	commitMsg += `: ${message}`;
-
-	if (breaking) {
-		const breakingDescResult = await text({
-			message: "Breaking change description",
-			placeholder: "Describe the breaking change",
-		});
-
-		if (isCancel(breakingDescResult)) {
-			cancel("Operation cancelled");
-			return;
+			if (isCancel(breakingResult)) {
+				cancel("Operation cancelled");
+				return;
+			}
+			breaking = breakingResult as boolean;
 		}
 
-		const breakingDesc = breakingDescResult as string;
-		if (breakingDesc?.trim()) {
-			commitMsg += `\n\nBREAKING CHANGE: ${breakingDesc.trim()}`;
-		}
-	}
+		// Get breaking change description if needed
+		let breakingDesc = "";
+		if (breaking) {
+			const breakingDescResult = await text({
+				message: "Breaking change description",
+				placeholder: "Describe the breaking change",
+			});
 
-	// Execute commit
-	s.start("Creating commit");
-	await execa("git", ["commit", "-m", commitMsg]);
-	s.stop(pc.green("✅ Commit created successfully"));
+			if (isCancel(breakingDescResult)) {
+				cancel("Operation cancelled");
+				return;
+			}
+			breakingDesc = breakingDescResult as string;
+		}
+
+		// Build commit message
+		const commitMessage = buildCommitMessage(
+			type,
+			scope,
+			message as string,
+			breaking,
+			breakingDesc,
+		);
+
+		await executeCommit(commitMessage);
+		logSuccess("Interactive commit created successfully");
+	} catch (error) {
+		logError(`Failed to create interactive commit: ${error}`);
+		throw error;
+	}
 }

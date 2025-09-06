@@ -58,10 +58,6 @@ export async function mergeBranch() {
 		);
 		console.log(stdout);
 	} catch (error) {
-		s.stop("❌ Merge failed");
-		console.error(
-			pc.red(error instanceof Error ? error.message : String(error)),
-		);
-		process.exit(1);
+		throw new Error(error instanceof Error ? error.message : String(error));
 	}
 }

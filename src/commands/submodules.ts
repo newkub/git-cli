@@ -107,10 +107,6 @@ export async function manageSubmodules() {
 			}
 		}
 	} catch (error) {
-		s.stop("❌ Submodule operation failed");
-		console.error(
-			pc.red(error instanceof Error ? error.message : String(error)),
-		);
-		process.exit(1);
+		throw new Error(error instanceof Error ? error.message : String(error));
 	}
 }

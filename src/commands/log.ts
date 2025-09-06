@@ -11,33 +11,42 @@ import { execa } from "execa";
 import * as pc from "picocolors";
 import type { GitCommit, GitLogOptions, CommandResult } from "../types/git.js";
 
+function getTimeAgo(date: Date): string {
+	const now = new Date();
+	const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+
+	if (diffInSeconds < 60) return `${diffInSeconds}s ago`;
+	if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`;
+	if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h ago`;
+	return `${Math.floor(diffInSeconds / 86400)}d ago`;
+}
+
 export async function showCommitLog() {
 	const s = spinner();
 
 	try {
-		intro(pc.blue("📜 Git Commit Log Viewer"));
+		intro(pc.blue("📜 Git Commit Log"));
 
-		s.start("Fetching commit history");
+		s.start("Loading commits");
 		const { stdout: logOutput } = await execa("git", [
 			"log",
 			"-n",
-			"100",
-			"--pretty=format:%h|%s|%an|%ad",
-			"--date=short",
+			"50",
+			"--pretty=format:%h|%s|%an|%ai",
 		]);
-		s.stop("✅ Commit history loaded");
+		s.stop();
 
 		const commits: GitCommit[] = logOutput
 			.split("\n")
 			.filter(Boolean)
 			.map((line) => {
-				const [hash, message, author, date] = line.split("|");
+				const [hash, message, author, isoDate] = line.split("|");
 				return {
 					hash,
 					shortHash: hash,
 					message,
 					author,
-					date: new Date(date),
+					date: new Date(isoDate),
 				};
 			});
 
@@ -45,58 +54,140 @@ export async function showCommitLog() {
 			message: "Select a commit",
 			options: commits.map((commit) => ({
 				value: commit.hash,
-				label: `${pc.gray(`[${commit.date}]`)} ${commit.message} ${pc.cyan(`(${commit.author})`)}`,
+				label: `${pc.cyan(commit.shortHash)} ${commit.message.slice(0, 60)}${commit.message.length > 60 ? "..." : ""} ${pc.gray(getTimeAgo(commit.date))}`,
 			})),
 		});
 
 		if (isCancel(selectedCommitHash)) {
-			cancel("Operation cancelled");
 			return;
 		}
 
+		await showCommitDetails(selectedCommitHash as string);
+	} catch (error) {
+		s.stop("❌ Failed to load commits");
+		throw new Error(error instanceof Error ? error.message : String(error));
+	}
+}
+
+async function showCommitDetails(commitHash: string) {
+	const s = spinner();
+
+	try {
 		s.start("Loading commit details");
-		const { stdout: commitDetail } = await execa("git", [
+		const { stdout: commitInfo } = await execa("git", [
 			"show",
+			"--pretty=format:%h|%s|%an|%ai|%B",
 			"--name-status",
-			selectedCommitHash,
+			commitHash,
 		]);
-		s.stop("✅ Commit details loaded");
+		s.stop();
 
-		console.log(`\n${pc.green("📝 Commit Details:")}`);
-		console.log(pc.gray("─".repeat(process.stdout.columns || 80)));
-		console.log(commitDetail);
+		const lines = commitInfo.split("\n");
+		const [hash, subject, author, isoDate, ...bodyAndFiles] =
+			lines[0].split("|");
+		const date = new Date(isoDate);
 
-		const showDiff = await confirm({
-			message: "Do you want to see the changes (diff)?",
-			initialValue: false,
+		console.log(`\n${pc.blue("📋 Commit Details")}`);
+		console.log(`${pc.cyan("Hash:")} ${hash}`);
+		console.log(`${pc.yellow("Message:")} ${subject}`);
+		console.log(`${pc.green("Author:")} ${author}`);
+		console.log(
+			`${pc.gray("Date:")} ${date.toLocaleString()} (${getTimeAgo(date)})`,
+		);
+
+		const action = await select({
+			message: "What would you like to do?",
+			options: [
+				{ value: "diff", label: "🔍 View Changes", hint: "Show file diffs" },
+				{ value: "revert", label: "↩️  Revert", hint: "Revert this commit" },
+				{
+					value: "cherry-pick",
+					label: "🍒 Cherry Pick",
+					hint: "Apply to current branch",
+				},
+				{
+					value: "reset",
+					label: "🔄 Reset to Here",
+					hint: "Reset HEAD to this commit",
+				},
+				{ value: "back", label: "← Back", hint: "Return to commit list" },
+			],
 		});
 
-		if (isCancel(showDiff)) {
-			cancel("Operation cancelled");
+		if (isCancel(action)) {
 			return;
 		}
 
-		if (showDiff) {
-			s.start("Loading diff");
-			const { stdout: diffOutput } = await execa("git", [
-				"show",
-				selectedCommitHash,
-			]);
-			s.stop("✅ Diff loaded");
-
-			console.log(`\n${pc.blue("🔄 Changes:")}`);
-			console.log(pc.gray("─".repeat(process.stdout.columns || 80)));
-			console.log(diffOutput);
-		}
-
-		outro(pc.green("✅ Commit history viewed successfully"));
+		await handleCommitAction(action as string, commitHash);
 	} catch (error) {
-		s.stop("❌ Operation failed");
-		outro(pc.red("Error viewing commit history"));
-		console.error(
-			pc.red(error instanceof Error ? error.message : String(error)),
-		);
-		process.exit(1);
+		s.stop("❌ Failed to load commit details");
+		throw new Error(error instanceof Error ? error.message : String(error));
+	}
+}
+
+async function handleCommitAction(action: string, commitHash: string) {
+	const s = spinner();
+
+	try {
+		switch (action) {
+			case "diff": {
+				s.start("Loading changes");
+				const { stdout: diff } = await execa("git", ["show", commitHash]);
+				s.stop();
+				console.log(`\n${pc.blue("🔄 Changes:")}`);
+				console.log(diff);
+				break;
+			}
+
+			case "revert": {
+				const confirmRevert = await confirm({
+					message: `Revert commit ${commitHash}?`,
+					initialValue: false,
+				});
+				if (confirmRevert && !isCancel(confirmRevert)) {
+					s.start("Reverting commit");
+					await execa("git", ["revert", "--no-edit", commitHash]);
+					s.stop();
+					console.log(pc.green(`✅ Commit ${commitHash} reverted`));
+				}
+				break;
+			}
+
+			case "cherry-pick": {
+				const confirmPick = await confirm({
+					message: `Cherry-pick commit ${commitHash}?`,
+					initialValue: false,
+				});
+				if (confirmPick && !isCancel(confirmPick)) {
+					s.start("Cherry-picking commit");
+					await execa("git", ["cherry-pick", commitHash]);
+					s.stop();
+					console.log(pc.green(`✅ Commit ${commitHash} cherry-picked`));
+				}
+				break;
+			}
+
+			case "reset": {
+				const confirmReset = await confirm({
+					message: `Reset HEAD to ${commitHash}? This will lose uncommitted changes!`,
+					initialValue: false,
+				});
+				if (confirmReset && !isCancel(confirmReset)) {
+					s.start("Resetting to commit");
+					await execa("git", ["reset", "--hard", commitHash]);
+					s.stop();
+					console.log(pc.green(`✅ Reset to commit ${commitHash}`));
+				}
+				break;
+			}
+
+			case "back":
+				await showCommitLog();
+				break;
+		}
+	} catch (error) {
+		s.stop("❌ Action failed");
+		throw new Error(error instanceof Error ? error.message : String(error));
 	}
 }
 
@@ -156,9 +247,6 @@ export async function viewGitLog() {
 		console.log(stdout);
 	} catch (error) {
 		s.stop("❌ Failed to load git log");
-		console.error(
-			pc.red(error instanceof Error ? error.message : String(error)),
-		);
-		process.exit(1);
+		throw new Error(error instanceof Error ? error.message : String(error));
 	}
 }
