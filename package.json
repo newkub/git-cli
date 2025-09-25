@@ -12,14 +12,13 @@
     "dist"
   ],
   "scripts": {
-    "prepare": "lefthook install",
+    "prepare": "bunx lefthook install",
     "prepublishOnly": "bun run build",
     "prepack": "bun run build",
-    "postinstall": "bun link",
     "preversion": "bun run lint && bun run build",
     "postversion": "bun run release",
     "dev": "bun run --watch src/index.ts",
-    "build": "tsdown",
+    "build": "tsdown && bun link",
     "lint": "biome lint --write && bunx tsc --noEmit",
     "format": "biome format --write",
     "release": "release-it"

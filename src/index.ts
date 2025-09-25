@@ -160,23 +160,23 @@ export async function main() {
 	}
 
 	// Interactive mode
-	intro(WELCOME_ART);
+	// intro(WELCOME_ART);
 
 	const status = await getGitStatus();
 
-	if (status.branch !== "Not a git repo") {
-		const fileCount = status.hasChanges
-			? status.status.split("\n").filter(Boolean).length
-			: 0;
+// 	if (status.branch !== "Not a git repo") {
+// 		const fileCount = status.hasChanges
+// 			? status.status.split("\n").filter(Boolean).length
+// 			: 0;
 
-		let statusLine = `${pc.cyan(status.branch)} | ${pc.yellow(`${status.lastCommitHash} ${status.lastCommitMessage}`)} | ${pc.green(status.remote)}`;
-		if (status.ahead > 0) statusLine += ` | ${pc.blue(`↑${status.ahead}`)}`;
-		if (status.behind > 0) statusLine += ` | ${pc.red(`↓${status.behind}`)}`;
-		if (status.hasChanges)
-			statusLine += ` | ${pc.yellow(`${fileCount} files changed`)}`;
+// 		let statusLine = `${pc.cyan(status.branch)} | ${pc.yellow(`${status.lastCommitHash} ${status.lastCommitMessage}`)} | ${pc.green(status.remote)}`;
+// 		if (status.ahead > 0) statusLine += ` | ${pc.blue(`↑${status.ahead}`)}`;
+// 		if (status.behind > 0) statusLine += ` | ${pc.red(`↓${status.behind}`)}`;
+// 		if (status.hasChanges)
+// 			statusLine += ` | ${pc.yellow(`${fileCount} files changed`)}`;
 
-		note(statusLine, "Git Status");
-	}
+// 		note(statusLine, "Git Status");
+// 	}
 
 	const command = await select({
 		message: pc.bold("What would you like to do?"),
@@ -224,11 +224,11 @@ export async function main() {
 		],
 	});
 
-	if (isCancel(command)) {
-		cancel(pc.yellow("See you next time!"));
-		outro(pc.blue("🚀 Happy coding!"));
-		process.exit(0);
-	}
+// 	if (isCancel(command)) {
+// 		cancel(pc.yellow("See you next time!"));
+// 		outro(pc.blue("🚀 Happy coding!"));
+// 		process.exit(0);
+// 	}
 
 	try {
 		switch (command) {
@@ -263,7 +263,7 @@ export async function main() {
 				await searchCommand();
 				break;
 		}
-		outro(pc.blue("🚀 Happy coding!"));
+// 		outro(pc.blue("🚀 Happy coding!"));
 		process.exit(0);
 	} catch (error) {
 		outro(
