@@ -1,10 +1,15 @@
 export { branchCommand } from "./branch";
 export { commitCommand } from "./commit";
+export { resetCommand } from "./reset";
+export { revertCommand } from "./revert";
+export { rebaseCommand } from "./rebase";
 export { showCommitLog } from "./log";
 export { mergeBranch } from "./merge";
 export { remoteCommand } from "./remote";
 export { searchCommand } from "./search";
-export { stageFiles } from "./stage";
 export { showGitStatus } from "./status";
 export { manageSubmodules } from "./submodules";
-export { unstageFiles } from "./unstage";
+export { stageUnstageCommand } from "./stage-unstage";
+export { cleanCommand } from "./clean";
+export { worktreeCommand } from "./worktree";
+export { releaseCommand } from "./release";

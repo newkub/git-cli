@@ -184,6 +184,43 @@ export function displayFileChangesInColumns(
  * Display files in column format
  */
 function displayFilesInColumns(files: GitFileStatus[], columns: number): void {
+	// For 2 columns, display files in two columns
+	if (columns === 2) {
+		// Calculate how many rows we need
+		const rows = Math.ceil(files.length / 2);
+		
+		for (let i = 0; i < rows; i++) {
+			let line = "    "; // Indentation
+			
+			// Left column
+			const leftIndex = i;
+			if (leftIndex < files.length) {
+				const leftFile = files[leftIndex];
+				const leftStatusChar =
+					leftFile.status === "??" ? "?" : leftFile.status.trim() || leftFile.status[0];
+				const leftColorFn = getStatusColor(leftFile.status);
+				line += `${leftColorFn(leftStatusChar)} ${leftFile.filename}`;
+			}
+			
+			// Add spacing between columns
+			line = line.padEnd(40); // Adjust this value based on your terminal width
+			
+			// Right column
+			const rightIndex = i + rows;
+			if (rightIndex < files.length) {
+				const rightFile = files[rightIndex];
+				const rightStatusChar =
+					rightFile.status === "??" ? "?" : rightFile.status.trim() || rightFile.status[0];
+				const rightColorFn = getStatusColor(rightFile.status);
+				line += `${rightColorFn(rightStatusChar)} ${rightFile.filename}`;
+			}
+			
+			console.log(line);
+		}
+		return;
+	}
+	
+	// For other column counts, use the original column layout
 	const filesPerColumn = Math.ceil(files.length / columns);
 	const maxRows = filesPerColumn;
 

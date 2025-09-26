@@ -521,6 +521,11 @@ async function interactiveMode(includeRemote = false): Promise<void> {
 				hint: "Delete an existing branch",
 			},
 			{
+				value: "cherry-pick",
+				label: "🍒 Cherry-pick commit",
+				hint: "Apply commit from another branch",
+			},
+			{
 				value: "list",
 				label: "📝 List all branches",
 				hint: "Show all branches",
@@ -596,6 +601,34 @@ async function interactiveMode(includeRemote = false): Promise<void> {
 			}
 
 			await deleteBranch(branchToDelete as string);
+			break;
+		}
+
+		case "cherry-pick": {
+			const commitHash = await text({
+				message: "Enter commit hash to cherry-pick",
+				placeholder: "abc123def",
+				validate(value) {
+					if (!value) return "Commit hash is required";
+					if (value.length < 4) return "Commit hash is too short";
+				},
+			});
+
+			if (isCancel(commitHash)) {
+				cancel("Operation cancelled");
+				return;
+			}
+
+			const confirmPick = await confirm({
+				message: `Cherry-pick commit ${commitHash}?`,
+				initialValue: true,
+			});
+
+			if (confirmPick && !isCancel(confirmPick)) {
+				s.start(`Cherry-picking commit ${commitHash}`);
+				await execa("git", ["cherry-pick", commitHash as string]);
+				s.stop(pc.green(`✅ Commit ${commitHash} cherry-picked`));
+			}
 			break;
 		}
 

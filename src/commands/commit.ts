@@ -32,7 +32,6 @@ import {
 	hasChanges,
 	autoCommitAllChanges,
 } from "../utils/useGitChanges";
-import { logSuccess, logError, logWarning, logInfo } from "../utils/useLogger";
 
 const COMMIT_TYPES: CommitType[] = [
 	{ value: "feat", label: "feat", hint: "A new feature" },
@@ -74,6 +73,9 @@ const COMMIT_TYPES: CommitType[] = [
 		hint: "Other changes that don't modify src or test files",
 	},
 	{ value: "revert", label: "revert", hint: "Reverts a previous commit" },
+	{ value: "release", label: "release", hint: "Create a release commit" },
+	{ value: "config", label: "config", hint: "Changes to configuration files" },
+	{ value: "security", label: "security", hint: "Security related changes" },
 ];
 
 export async function commitCommand(args: string[]): Promise<void> {
@@ -94,8 +96,8 @@ export async function commitCommand(args: string[]): Promise<void> {
 		const hasAnyChanges = await hasChanges();
 		s.stop("✅ Changes checked");
 
-		if (!hasAnyChanges) {
-			logInfo("No changes to commit");
+		if (!hasAnyChanges && options.mode !== "cherry-pick") {
+			console.log(pc.cyan(`ℹ️  No changes to commit`));
 			return;
 		}
 
@@ -133,6 +135,11 @@ export async function commitCommand(args: string[]): Promise<void> {
 			return;
 		}
 
+		if (options.mode === "cherry-pick") {
+			await createCherryPickCommit();
+			return;
+		}
+
 		// Use AI only when explicitly requested
 		if (options.ai && !options.no_ai) {
 			await createAICommit(config);
@@ -147,11 +154,49 @@ export async function commitCommand(args: string[]): Promise<void> {
 	}
 }
 
+async function createCherryPickCommit(): Promise<void> {
+	try {
+		const commitHash = await text({
+			message: "Enter commit hash to cherry-pick",
+			placeholder: "abc123def",
+			validate(value) {
+				if (!value) return "Commit hash is required";
+				if (value.length < 4) return "Commit hash is too short";
+			},
+		});
+
+		if (isCancel(commitHash)) {
+			cancel("Cherry-pick cancelled");
+			return;
+		}
+
+		const confirmPick = await confirm({
+			message: `Cherry-pick commit ${commitHash}?`,
+			initialValue: true,
+		});
+
+		if (!confirmPick || isCancel(confirmPick)) {
+			console.log(pc.gray("Cherry-pick cancelled"));
+			return;
+		}
+
+		const s = spinner();
+		s.start(`Cherry-picking commit ${commitHash}`);
+		await execa("git", ["cherry-pick", commitHash as string]);
+		s.stop(pc.green(`✅ Commit ${commitHash} cherry-picked successfully`));
+	} catch (error) {
+		const s = spinner();
+		s.stop("❌ Cherry-pick failed");
+		console.log(pc.red(`❌ Failed to cherry-pick commit: ${error}`));
+		throw error;
+	}
+}
+
 async function createAICommit(config: KogitConfig): Promise<void> {
 	try {
 		const stagedFiles = await getStagedFiles();
 		if (stagedFiles.length === 0) {
-			logWarning("No staged changes to commit");
+			console.log(pc.yellow(`⚠️  No staged changes to commit`));
 			return;
 		}
 
@@ -162,9 +207,9 @@ async function createAICommit(config: KogitConfig): Promise<void> {
 		if (!confirmed) return;
 
 		await executeCommit(aiMessage);
-		logSuccess("AI commit created successfully");
+		console.log(pc.green(`✅ AI commit created successfully`));
 	} catch (error) {
-		logError(`Failed to create AI commit: ${error}`);
+		console.log(pc.red(`❌ Failed to create AI commit: ${error}`));
 		throw error;
 	}
 }
@@ -178,8 +223,8 @@ async function createAutoCommit(config: KogitConfig): Promise<void> {
 		await autoCommitAllChanges(config);
 		outro(pc.green("🎉 Auto-commit completed successfully!"));
 	} catch (error) {
-		logError(`Failed to create auto-commit: ${error}`);
-		logWarning("Please check your configuration and try again.");
+		console.log(pc.red(`❌ Failed to create auto-commit: ${error}`));
+		console.log(pc.yellow(`⚠️  Please check your configuration and try again.`));
 		throw error;
 	}
 }
@@ -220,9 +265,9 @@ async function createPromptEnhanceCommit(config: KogitConfig): Promise<void> {
 		if (!confirmed) return;
 
 		await executeCommit(enhancedMessage);
-		logSuccess("Enhanced commit created successfully");
+		console.log(pc.green(`✅ Enhanced commit created successfully`));
 	} catch (error) {
-		logError(`Failed to create enhanced commit: ${error}`);
+		console.log(pc.red(`❌ Failed to create enhanced commit: ${error}`));
 		throw error;
 	}
 }
@@ -320,9 +365,9 @@ async function createInteractiveCommit(
 		);
 
 		await executeCommit(commitMessage);
-		logSuccess("Interactive commit created successfully");
+		console.log(pc.green(`✅ Interactive commit created successfully`));
 	} catch (error) {
-		logError(`Failed to create interactive commit: ${error}`);
+		console.log(pc.red(`❌ Failed to create interactive commit: ${error}`));
 		throw error;
 	}
 }

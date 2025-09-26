@@ -1,4 +1,6 @@
 import { isCancel, select } from "@clack/prompts";
+import { execa } from "execa";
+import * as pc from "picocolors";
 import {
 	pullChanges,
 	pushChanges,
@@ -7,10 +9,25 @@ import {
 	addRemote,
 	removeRemote,
 	renameRemote,
-	listRemotes,
 } from "../utils/useRemote";
 
 export async function remoteCommand() {
+	// Display list of remotes at the top
+	try {
+		const { stdout: remotes } = await execa("git", ["remote", "-v"]);
+		
+		if (remotes.trim()) {
+			console.log(pc.blue("📋 Remote Repositories:"));
+			console.log(remotes);
+			console.log(""); // Add spacing
+		} else {
+			console.log(pc.yellow("No remotes configured\n"));
+		}
+	} catch (error) {
+		console.log(pc.red("Failed to get remotes:"), error instanceof Error ? error.message : String(error));
+		console.log(""); // Add spacing
+	}
+
 	const action = await select({
 		message: "Remote repository actions",
 		options: [
@@ -37,7 +54,6 @@ export async function remoteCommand() {
 				label: "✏️  Rename Remote",
 				hint: "Rename existing remote",
 			},
-			{ value: "list", label: "📋 List Remotes", hint: "Show all remotes" },
 		],
 	});
 
@@ -66,9 +82,6 @@ export async function remoteCommand() {
 			break;
 		case "rename":
 			await renameRemote();
-			break;
-		case "list":
-			await listRemotes();
 			break;
 	}
 }

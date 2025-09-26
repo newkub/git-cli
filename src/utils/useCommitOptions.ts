@@ -5,7 +5,8 @@ export type CommitMode =
 	| "autocommit"
 	| "prompt-enhance"
 	| "ai-generate"
-	| "interactive";
+	| "interactive"
+	| "cherry-pick";
 
 export interface CommitOptions {
 	ai?: boolean;
@@ -64,7 +65,8 @@ export function parseCommitArgs(args: string[]): CommitOptions {
 						mode === "autocommit" ||
 						mode === "prompt-enhance" ||
 						mode === "ai-generate" ||
-						mode === "interactive"
+						mode === "interactive" ||
+						mode === "cherry-pick"
 					) {
 						options.mode = mode;
 					}
@@ -107,6 +109,11 @@ export async function selectCommitMode(): Promise<CommitMode | null> {
 				label: "Interactive",
 				hint: "Create commit message step by step",
 			},
+			{
+				value: "cherry-pick",
+				label: "Cherry-pick",
+				hint: "Apply commit from another branch",
+			},
 		],
 	});
 
@@ -133,7 +140,7 @@ export function showCommitHelp(): void {
 	);
 	console.log("      --no-ai        Disable AI commit message generation");
 	console.log(
-		"      --mode         Commit mode: 'autocommit', 'prompt-enhance', 'ai-generate', or 'interactive'",
+		"      --mode         Commit mode: 'autocommit', 'prompt-enhance', 'ai-generate', 'interactive', or 'cherry-pick'",
 	);
 	console.log("  -m, --message      Commit message");
 	console.log("  -t, --type         Commit type (feat, fix, docs, etc.)");
@@ -147,4 +154,5 @@ export function showCommitHelp(): void {
 	console.log("  git commit --mode prompt-enhance");
 	console.log("  git commit --message 'fix: resolve issue'");
 	console.log("  git commit --type feat --scope api");
+	console.log("  git commit --mode cherry-pick");
 }
